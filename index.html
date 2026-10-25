@@ -6,15 +6,21 @@
   <title>Vori AR (WebXR test)</title>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; font-family: sans-serif; }
-    #msg { position: fixed; left: 12px; bottom: 12px; color: #fff; background: rgba(0, 0, 0, 0.6); padding: 8px 12px; border-radius: 8px; font-size: 14px; }
+    #msg { position: fixed; left: 12px; top: 12px; color: #fff; background: rgba(0, 0, 0, 0.75); padding: 10px 14px; border-radius: 8px; font-size: 16px; line-height: 1.5; max-width: 80%; }
+    #startBtn { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); font-size: 26px; padding: 16px 36px; border: none; border-radius: 12px; background: #2fb3a6; color: #000; font-weight: bold; }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/webxr/ARButton.js"></script>
 </head>
 <body>
 <div id="msg">Loading replay data...</div>
 <script>
 const msg = document.getElementById('msg');
+const statusLines = [];
+function log(line) {
+  statusLines.push(line);
+  msg.innerHTML = statusLines.join('<br>');
+}
+log('Page script running.');
 
 const ALPHA_THRESHOLD = 0.35;
 const CUE_DISTANCE = 1.5;
@@ -31,9 +37,9 @@ fetch('vori_replay.json')
   .then(r => r.json())
   .then(data => {
     samples = data.samples;
-    msg.textContent = 'Replay loaded (' + samples.length + ' s). Press Enter AR on a Quest.';
+    log('Replay loaded: ' + samples.length + ' s.');
   })
-  .catch(() => { msg.textContent = 'Could not load vori_replay.json'; });
+  .catch(e => log('Replay load failed: ' + e));
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(window.devicePixelRatio);
@@ -119,22 +125,35 @@ function render() {
 renderer.xr.addEventListener('sessionstart', () => {
   startTime = performance.now();
   gate = 0;
-  msg.textContent = 'AR session running.';
+  log('AR session started.');
 });
-renderer.xr.addEventListener('sessionend', () => {
-  msg.textContent = 'AR session ended.';
-});
+renderer.xr.addEventListener('sessionend', () => log('AR session ended.'));
+
+const startBtn = document.createElement('button');
+startBtn.id = 'startBtn';
+startBtn.textContent = 'Start AR';
+document.body.appendChild(startBtn);
+
+log('navigator.xr: ' + (navigator.xr ? 'available' : 'NOT available'));
+log('WebGL: ' + (renderer.getContext() ? 'ok' : 'failed'));
 
 if (navigator.xr) {
-  navigator.xr.isSessionSupported('immersive-ar').then(supported => {
-    if (supported) {
-      document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: [] }));
-    } else {
-      msg.textContent = 'immersive-ar not supported on this browser.';
+  navigator.xr.isSessionSupported('immersive-ar')
+    .then(s => log('immersive-ar supported: ' + s))
+    .catch(e => log('isSessionSupported error: ' + e));
+
+  startBtn.addEventListener('click', async () => {
+    try {
+      const session = await navigator.xr.requestSession('immersive-ar', { optionalFeatures: ['local-floor'] });
+      await renderer.xr.setSession(session);
+      startBtn.style.display = 'none';
+    } catch (e) {
+      log('Start failed: ' + e);
     }
   });
 } else {
-  msg.textContent = 'WebXR not available here. Open this page in the Quest Browser over HTTPS.';
+  startBtn.disabled = true;
+  log('Open this page in the Quest Browser over HTTPS.');
 }
 
 renderer.setAnimationLoop(render);
