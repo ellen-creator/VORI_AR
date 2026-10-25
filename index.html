@@ -7,12 +7,19 @@
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; font-family: sans-serif; }
     #msg { position: fixed; left: 12px; top: 12px; color: #fff; background: rgba(0, 0, 0, 0.75); padding: 10px 14px; border-radius: 8px; font-size: 16px; line-height: 1.5; max-width: 80%; }
+    #controls { position: fixed; left: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
+    #controls button { font-size: 18px; padding: 10px 16px; border: none; border-radius: 10px; background: #ffffff; color: #000; font-weight: bold; }
     #startBtn { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); font-size: 26px; padding: 16px 36px; border: none; border-radius: 12px; background: #2fb3a6; color: #000; font-weight: bold; }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
 <div id="msg">Loading replay data...</div>
+<div id="controls">
+  <button id="forceBtn">Force cue: OFF</button>
+  <button id="jumpBtn">Jump to overload (80 s)</button>
+  <button id="shapeBtn">Shape: ring</button>
+</div>
 <script>
 const msg = document.getElementById('msg');
 const statusLines = [];
@@ -32,6 +39,8 @@ const PANEL_OFFSET = new THREE.Vector3(-0.45, 0.25, -1.5);
 let samples = [];
 let startTime = performance.now();
 let gate = 0;
+let forceCue = false;
+let timeOffset = 0;
 
 fetch('vori_replay.json')
   .then(r => r.json())
@@ -103,7 +112,7 @@ function placeCue() {
 }
 
 function render() {
-  const elapsed = (performance.now() - startTime) / 1000;
+  const elapsed = (performance.now() - startTime) / 1000 + timeOffset;
   let alpha = 0.5, tbr = 2.0;
   if (samples.length > 0) {
     const s = samples[Math.floor(elapsed) % samples.length];
@@ -111,7 +120,7 @@ function render() {
     tbr = s.tbr;
   }
 
-  const target = cueTarget(alpha);
+  const target = forceCue ? 1 : cueTarget(alpha);
   gate += (target - gate) * 0.08;
   cueMaterial.opacity = gate * 0.8;
 
@@ -133,6 +142,30 @@ const startBtn = document.createElement('button');
 startBtn.id = 'startBtn';
 startBtn.textContent = 'Start AR';
 document.body.appendChild(startBtn);
+
+const shapes = [
+  new THREE.RingGeometry(CUE_RADIUS * 0.6, CUE_RADIUS, 48),
+  new THREE.CircleGeometry(CUE_RADIUS, 48),
+  new THREE.TorusGeometry(CUE_RADIUS * 0.7, CUE_RADIUS * 0.25, 12, 48)
+];
+const shapeNames = ['ring', 'disc', 'torus'];
+let shapeIndex = 0;
+const forceBtn = document.getElementById('forceBtn');
+const jumpBtn = document.getElementById('jumpBtn');
+const shapeBtn = document.getElementById('shapeBtn');
+forceBtn.addEventListener('click', () => {
+  forceCue = !forceCue;
+  forceBtn.textContent = 'Force cue: ' + (forceCue ? 'ON' : 'OFF');
+});
+jumpBtn.addEventListener('click', () => {
+  timeOffset = 80 - (performance.now() - startTime) / 1000;
+  log('Jumped to 80 s (overload segment).');
+});
+shapeBtn.addEventListener('click', () => {
+  shapeIndex = (shapeIndex + 1) % shapes.length;
+  cue.geometry = shapes[shapeIndex];
+  shapeBtn.textContent = 'Shape: ' + shapeNames[shapeIndex];
+});
 
 log('navigator.xr: ' + (navigator.xr ? 'available' : 'NOT available'));
 log('WebGL: ' + (renderer.getContext() ? 'ok' : 'failed'));
