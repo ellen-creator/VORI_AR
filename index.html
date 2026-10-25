@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vori AR (WebXR test)</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; font-family: sans-serif; }
+    #msg { position: fixed; left: 12px; bottom: 12px; color: #fff; background: rgba(0, 0, 0, 0.6); padding: 8px 12px; border-radius: 8px; font-size: 14px; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/webxr/ARButton.js"></script>
+</head>
+<body>
+<div id="msg">Loading replay data...</div>
+<script>
+const msg = document.getElementById('msg');
+
+const ALPHA_THRESHOLD = 0.35;
+const CUE_DISTANCE = 1.5;
+const CUE_RADIUS = 0.046;
+const PERIPHERAL_YAW_DEG = 4;
+const PERIPHERAL_PITCH_DEG = -3;
+const PANEL_OFFSET = new THREE.Vector3(-0.45, 0.25, -1.5);
+
+let samples = [];
+let startTime = performance.now();
+let gate = 0;
+
+fetch('vori_replay.json')
+  .then(r => r.json())
+  .then(data => {
+    samples = data.samples;
+    msg.textContent = 'Replay loaded (' + samples.length + ' s). Press Enter AR on a Quest.';
+  })
+  .catch(() => { msg.textContent = 'Could not load vori_replay.json'; });
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x000000, 0);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+scene.add(camera);
+
+const cueRig = new THREE.Group();
+scene.add(cueRig);
+const cueMaterial = new THREE.MeshBasicMaterial({ color: 0x2fb3a6, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+const cue = new THREE.Mesh(new THREE.RingGeometry(CUE_RADIUS * 0.6, CUE_RADIUS, 48), cueMaterial);
+cueRig.add(cue);
+
+const panelCanvas = document.createElement('canvas');
+panelCanvas.width = 512;
+panelCanvas.height = 256;
+const panelCtx = panelCanvas.getContext('2d');
+const panelTexture = new THREE.CanvasTexture(panelCanvas);
+const panelMaterial = new THREE.MeshBasicMaterial({ map: panelTexture, transparent: true });
+const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.2), panelMaterial);
+panel.position.copy(PANEL_OFFSET);
+camera.add(panel);
+
+function drawPanel(alpha, tbr, elapsed, state) {
+  panelCtx.fillStyle = 'rgba(17, 17, 17, 0.72)';
+  panelCtx.fillRect(0, 0, panelCanvas.width, panelCanvas.height);
+  panelCtx.fillStyle = '#ffffff';
+  panelCtx.font = '26px monospace';
+  const lines = [
+    'Vori status',
+    'alpha ' + alpha.toFixed(2) + '  tbr ' + tbr.toFixed(2),
+    'state ' + state,
+    'cue ' + Math.round(gate * 100) + '%',
+    't = ' + elapsed.toFixed(0) + ' s'
+  ];
+  lines.forEach((line, i) => panelCtx.fillText(line, 20, 45 + i * 40));
+  panelTexture.needsUpdate = true;
+}
+
+function cueTarget(alpha) {
+  if (alpha >= ALPHA_THRESHOLD) return 0;
+  return Math.min(1, Math.max(0, (ALPHA_THRESHOLD - alpha) * 2.8));
+}
+
+function placeCue() {
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  const up = new THREE.Vector3(0, 1, 0);
+  const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+  const yaw = new THREE.Quaternion().setFromAxisAngle(up, THREE.MathUtils.degToRad(PERIPHERAL_YAW_DEG));
+  const pitch = new THREE.Quaternion().setFromAxisAngle(right, THREE.MathUtils.degToRad(PERIPHERAL_PITCH_DEG));
+  const dir = forward.clone().applyQuaternion(yaw).applyQuaternion(pitch);
+  const target = new THREE.Vector3().copy(camera.position).addScaledVector(dir, CUE_DISTANCE);
+  cueRig.position.lerp(target, 0.08);
+  cueRig.lookAt(camera.position);
+}
+
+function render() {
+  const elapsed = (performance.now() - startTime) / 1000;
+  let alpha = 0.5, tbr = 2.0;
+  if (samples.length > 0) {
+    const s = samples[Math.floor(elapsed) % samples.length];
+    alpha = s.alpha;
+    tbr = s.tbr;
+  }
+
+  const target = cueTarget(alpha);
+  gate += (target - gate) * 0.08;
+  cueMaterial.opacity = gate * 0.8;
+
+  const state = alpha < ALPHA_THRESHOLD ? 'SENSORY_OVERLOAD' : (tbr > 3.5 ? 'FOCUS_DRIFT' : 'NORMAL');
+  drawPanel(alpha, tbr, elapsed, state);
+  placeCue();
+
+  renderer.render(scene, camera);
+}
+
+renderer.xr.addEventListener('sessionstart', () => {
+  startTime = performance.now();
+  gate = 0;
+  msg.textContent = 'AR session running.';
+});
+renderer.xr.addEventListener('sessionend', () => {
+  msg.textContent = 'AR session ended.';
+});
+
+if (navigator.xr) {
+  navigator.xr.isSessionSupported('immersive-ar').then(supported => {
+    if (supported) {
+      document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: [] }));
+    } else {
+      msg.textContent = 'immersive-ar not supported on this browser.';
+    }
+  });
+} else {
+  msg.textContent = 'WebXR not available here. Open this page in the Quest Browser over HTTPS.';
+}
+
+renderer.setAnimationLoop(render);
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
