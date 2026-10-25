@@ -177,7 +177,10 @@ if (navigator.xr) {
 
   startBtn.addEventListener('click', async () => {
     try {
-      const session = await navigator.xr.requestSession('immersive-ar', { optionalFeatures: ['local-floor'] });
+      const session = await navigator.xr.requestSession('immersive-ar', {
+        optionalFeatures: ['local-floor', 'dom-overlay'],
+        domOverlay: { root: document.body }
+      });
       await renderer.xr.setSession(session);
       startBtn.style.display = 'none';
     } catch (e) {
