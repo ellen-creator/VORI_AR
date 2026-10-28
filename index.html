@@ -39,8 +39,9 @@ const PANEL_OFFSET = new THREE.Vector3(-0.45, 0.25, -1.5);
 let samples = [];
 let startTime = performance.now();
 let gate = 0;
-let forceCue = false;
-let timeOffset = 0;
+const urlParams = new URLSearchParams(location.search);
+let forceCue = urlParams.get('force') === '1';
+let timeOffset = parseFloat(urlParams.get('start') || '0');
 
 fetch('vori_replay.json')
   .then(r => r.json())
@@ -153,6 +154,8 @@ let shapeIndex = 0;
 const forceBtn = document.getElementById('forceBtn');
 const jumpBtn = document.getElementById('jumpBtn');
 const shapeBtn = document.getElementById('shapeBtn');
+forceBtn.textContent = 'Force cue: ' + (forceCue ? 'ON' : 'OFF');
+log('Options: ?start=80 (overload), ?force=1 (cue on)');
 forceBtn.addEventListener('click', () => {
   forceCue = !forceCue;
   forceBtn.textContent = 'Force cue: ' + (forceCue ? 'ON' : 'OFF');
